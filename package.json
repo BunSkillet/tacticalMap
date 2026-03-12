@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server/app.js",
     "dev": "nodemon server/app.js",
-    "test": "node test/userManager.test.js"
+    "test": "node test/userManager.test.js && node test/replayService.test.js"
   },
   "dependencies": {
     "express": "5.1.0",
