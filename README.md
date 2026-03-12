@@ -70,13 +70,22 @@ tacticalMap/
 └── README.md
 ```
 
-## Tech Stack
-
-- **Backend:** Node.js, Express, Socket.IO
-- **Frontend:** Vanilla HTML/CSS/JS + `<canvas>` rendering
-- **Security middleware:** Helmet, CORS
-- **Config:** dotenv
-- **Dev tooling:** nodemon
+## Current Features
+- **Map Selection** – Choose between several stock CS2 maps.
+- **Drawing Tools** – Freehand pen drawing with colour selection.
+ - **Ping and Draggable Objects** – Double click or use the ping tool to highlight points. Drag icons (e.g. grenade, AWP, anchor, CT, T) onto the map. On touch screens press and hold an icon to drag it, or tap the icon then tap the map to place it.
+- **Text Boxes** – Use the text tool to drop editable notes directly onto the canvas. Double click (or double tap on mobile) any text to edit it again.
+- **Object Selection** – Select placed objects to move or delete them. A Delete button allows removal on mobile devices.
+- **Pan and Zoom** – Scroll to zoom and drag to pan the map.
+- **Context Menu** – Right click the canvas to quickly switch tools.
+- **Undo/Redo** – Each user can revert or reapply their last ten changes using toolbar buttons or keyboard shortcuts.
+- **Real‑Time Collaboration** – All drawings, pings and objects are synced between connected clients.
+- **User Colour Management** – The server assigns each user a unique colour and prevents conflicts.
+- **Multi-Room Support** – Each board has an isolated state identified by a unique 4‑digit code returned from the `/host` endpoint.
+- **Request Validation and Rate Limiting** – Basic checks guard against malformed or abusive client data.
+- **Security Hardening** – Optional authentication token and CORS origin control via environment variables.
+- **Automated Tests** – `npm test` runs simple unit tests for user management.
+- **Replay Overlay (Upload)** – Drag-and-drop or browse for replay files (`.dem` or `.json`) from the sidebar. Loaded timelines show player tokens, usernames, event markers, kill feed, and optional player detail panel with team loadouts and ammo. `.dem` uploads auto-detect map when possible from header text and can auto-switch the board map.
 
 ## Setup
 
