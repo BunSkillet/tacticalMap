@@ -7,6 +7,7 @@ const fs = require('fs');
 const helmet = require('helmet');
 const cors = require('cors');
 const userManager = require('./userManager');
+const { createReplayService } = require('./replayService');
 
 // Load environment variables before referencing them
 const dotenv = require('dotenv');
@@ -35,9 +36,19 @@ const lastEvent = new Map(); // socket.id -> {eventType: timestamp}
 // Store active rooms and their states
 // code -> {drawings, pings, objects, currentMap, historyByUser, redoByUser}
 const rooms = new Map();
+const replayService = createReplayService();
 
 function createRoomState() {
-    return { drawings: [], pings: [], objects: [], currentMap: 'train', historyByUser: {}, redoByUser: {} };
+    return {
+        drawings: [],
+        pings: [],
+        objects: [],
+        currentMap: 'train',
+        historyByUser: {},
+        redoByUser: {},
+        hostSocketId: null,
+        replayCollab: { annotationsByRound: {}, currentReplay: null }
+    };
 }
 
 function generateRoomCode() {
@@ -206,6 +217,33 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, '../public/landing.html'));
 });
 
+
+
+app.post('/api/replays/upload', express.raw({ type: '*/*', limit: '50mb' }), (req, res) => {
+    try {
+        const fileName = String(req.query.filename || req.headers['x-file-name'] || 'upload.dem');
+        const { jobId, cached } = replayService.uploadReplay({
+            buffer: req.body,
+            fileName
+        });
+        res.json({ jobId, status: cached ? 'completed' : 'processing', cached });
+    } catch (err) {
+        res.status(400).json({ error: err.message });
+    }
+});
+
+app.get('/api/replays/:jobId', (req, res) => {
+    const job = replayService.getJob(req.params.jobId);
+    if (!job) return res.status(404).json({ error: 'Replay job not found' });
+    if (job.status === 'completed') {
+        return res.json({ status: 'completed', replay: job.result, fileName: job.fileName, contentHash: job.contentHash });
+    }
+    if (job.status === 'failed') {
+        return res.status(422).json({ status: 'failed', error: job.error, fileName: job.fileName });
+    }
+    return res.json({ status: 'processing', fileName: job.fileName });
+});
+
 // Endpoint to create a new room
 app.post('/host', (req, res) => {
     const code = generateRoomCode();
@@ -232,6 +270,9 @@ io.on('connection', (socket) => {
     socket.join(roomCode);
     const roomState = rooms.get(roomCode);
 
+    const isHost = socket.handshake.query.host === '1';
+    if (isHost && !roomState.hostSocketId) roomState.hostSocketId = socket.id;
+
     // Add the user and assign a color
     const user = userManager.addUser(socket.id, userName, roomCode);
     socket.emit('colorAssigned', user.color);
@@ -256,6 +297,7 @@ io.on('connection', (socket) => {
 
     // Send the current state to the new client
     socket.emit('stateUpdate', roomState);
+    socket.emit('replayCollabSnapshot', roomState.replayCollab);
 
     // Handle drawing events
     socket.on('draw', (data) => {
@@ -408,12 +450,55 @@ io.on('connection', (socket) => {
         io.to(roomCode).emit('stateUpdate', roomState);
     });
 
+
+
+
+    socket.on('replayDataUpdate', (payload) => {
+        if (roomState.hostSocketId && socket.id !== roomState.hostSocketId) return;
+        if (!payload || typeof payload !== 'object') return;
+        const replay = payload.replay;
+        if (!replay || !Array.isArray(replay.frames) || !Array.isArray(replay.rounds)) return;
+        roomState.replayCollab.currentReplay = {
+            mapName: typeof replay.mapName === 'string' ? replay.mapName : '',
+            tickRate: Number.isFinite(replay.tickRate) ? replay.tickRate : 64,
+            rounds: replay.rounds,
+            frames: replay.frames,
+            mapAutoDetected: Boolean(replay.mapAutoDetected)
+        };
+        io.to(roomCode).emit('replayDataUpdated', roomState.replayCollab.currentReplay);
+    });
+
+    socket.on('replayAnnotationUpdate', (payload) => {
+        if (roomState.hostSocketId && socket.id !== roomState.hostSocketId) return;
+        if (!payload || typeof payload.roundIndex !== 'number' || payload.roundIndex < 0) return;
+        const text = typeof payload.text === 'string' ? payload.text.slice(0, 2000) : '';
+        roomState.replayCollab.annotationsByRound[payload.roundIndex] = text;
+        io.to(roomCode).emit('replayAnnotationUpdated', {
+            roundIndex: payload.roundIndex,
+            text,
+            by: socket.id
+        });
+    });
+
+    socket.on('replayViewSync', (payload) => {
+        if (roomState.hostSocketId && socket.id !== roomState.hostSocketId) return;
+        if (!payload || typeof payload !== 'object') return;
+        io.to(roomCode).emit('replayViewSynced', {
+            frameIndex: Number.isFinite(payload.frameIndex) ? payload.frameIndex : 0,
+            speed: Number.isFinite(payload.speed) ? payload.speed : 1,
+            timeMode: payload.timeMode === 'seconds' ? 'seconds' : 'tick',
+            eventFilter: payload.eventFilter && typeof payload.eventFilter === 'object' ? payload.eventFilter : {},
+            sourceId: socket.id
+        });
+    });
+
     // Handle disconnection
     socket.on('disconnect', () => {
         console.log('A user disconnected:', socket.id);
         const removed = userManager.removeUser(socket.id);
         const name = removed ? removed.name : '';
         socket.broadcast.to(roomCode).emit('userDisconnected', { id: socket.id, name });
+        if (roomState.hostSocketId === socket.id) roomState.hostSocketId = null;
         emitUserList(roomCode);
         lastEvent.delete(socket.id);
     });

@@ -1,6 +1,7 @@
 import { animate } from './canvas.js';
 import { setupEvents } from './events.js';
 import { initSocket } from './socketHandlers.js';
+import { setupReplayControls } from './replay.js';
 
 function start() {
   const params = new URLSearchParams(window.location.search);
@@ -11,6 +12,7 @@ function start() {
   }
   setupEvents();
   initSocket();
+  setupReplayControls();
   animate();
 }
 

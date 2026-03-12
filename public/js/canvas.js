@@ -1,4 +1,5 @@
 import { state } from './state.js';
+import { getReplayHotspots, getReplayRenderData } from './replay.js';
 
 export function resizeCanvas() {
   state.canvas.width = state.canvas.clientWidth;
@@ -25,6 +26,121 @@ export function loadMap(name) {
   state.mapImage.src = `maps/${name}.jpg`;
 }
 
+function toMapPoint(normalized) {
+  return {
+    x: normalized.x * state.mapImage.width,
+    y: normalized.y * state.mapImage.height
+  };
+}
+
+function drawReplayLabel(ctx, x, y, text) {
+  const fontSize = 12 / state.scale;
+  const paddingX = 6 / state.scale;
+  const paddingY = 3 / state.scale;
+  ctx.font = `600 ${fontSize}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const width = ctx.measureText(text).width;
+  const labelX = x - ((width / 2) + paddingX);
+  const labelY = y - (10 / state.scale) - (fontSize + paddingY * 2);
+
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+  ctx.beginPath();
+  ctx.roundRect(labelX, labelY, width + paddingX * 2, fontSize + paddingY * 2, 3 / state.scale);
+  ctx.fill();
+
+  ctx.fillStyle = '#f8f8f8';
+  ctx.fillText(text, x, labelY + (fontSize / 2) + paddingY);
+}
+
+
+function drawReplayHotspots(ctx) {
+  const hotspots = getReplayHotspots();
+  if (!hotspots) return;
+
+  hotspots.frequent.forEach((spot) => {
+    const pt = toMapPoint(spot);
+    const radius = (14 + Math.min(spot.weight, 25)) / state.scale;
+    const alpha = Math.min(0.35, 0.1 + (spot.weight / 80));
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, radius, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255, 196, 0, ${alpha})`;
+    ctx.fill();
+  });
+
+  hotspots.lethal.forEach((spot) => {
+    const pt = toMapPoint(spot);
+    const radius = (12 + Math.min(spot.weight, 25)) / state.scale;
+    const alpha = Math.min(0.42, 0.12 + (spot.weight / 70));
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, radius, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255, 64, 64, ${alpha})`;
+    ctx.fill();
+    ctx.lineWidth = 1 / state.scale;
+    ctx.strokeStyle = `rgba(255, 190, 190, ${Math.min(0.7, alpha + 0.2)})`;
+    ctx.stroke();
+  });
+}
+
+function drawReplayOverlay(ctx) {
+  drawReplayHotspots(ctx);
+  const replayFrame = getReplayRenderData();
+  if (!replayFrame) return;
+
+  replayFrame.players.forEach((player) => {
+    const pt = toMapPoint(player);
+    const radius = 14 / state.scale;
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, radius, 0, Math.PI * 2);
+    ctx.fillStyle = player.team === 'CT' ? '#2d7ef7' : '#f39c12';
+    ctx.fill();
+    ctx.lineWidth = 2 / state.scale;
+    ctx.strokeStyle = '#101010';
+    ctx.stroke();
+
+    drawReplayLabel(ctx, pt.x, pt.y, player.name || 'Player');
+
+    if (player.hasBomb) {
+      ctx.fillStyle = '#111';
+      ctx.font = `${16 / state.scale}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText('💣', pt.x, pt.y - (14 / state.scale));
+    }
+  });
+
+  replayFrame.events.forEach((event) => {
+    const pt = toMapPoint(event);
+    let color = '#ffffff';
+    let symbol = '•';
+    if (event.type === 'shot') {
+      color = '#ffeb3b';
+      symbol = '🔫';
+    } else if (event.type === 'death' || event.type === 'kill') {
+      color = '#ff4d4f';
+      symbol = '☠️';
+    } else if (event.type === 'grenadeThrow') {
+      color = '#9c27b0';
+      symbol = '🧨';
+    } else if (event.type === 'grenadeDrop') {
+      color = '#7e57c2';
+      symbol = '📦';
+    } else if (event.type === 'bombDrop') {
+      color = '#111111';
+      symbol = '👜';
+    } else if (event.type === 'bombPlant') {
+      color = '#00e676';
+      symbol = '💣';
+    }
+
+    ctx.fillStyle = color;
+    ctx.font = `${17 / state.scale}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(symbol, pt.x, pt.y);
+  });
+}
+
 export function draw() {
   const ctx = state.ctx;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -46,6 +162,8 @@ export function draw() {
       ctx.stroke();
     });
   }
+
+  drawReplayOverlay(ctx);
 
   state.placedObjects.forEach(obj => {
     ctx.font = `${48 / state.scale}px sans-serif`;

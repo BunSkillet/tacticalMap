@@ -4,19 +4,23 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CS2 Tactical Board</title>
-  <link rel="stylesheet" href="css/style.css"> <!-- Link to external CSS -->
+  <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
   <div id="main">
     <div id="canvas-container">
       <canvas id="mapCanvas"></canvas>
+      <div id="kill-feed" class="hidden" aria-live="polite"></div>
+      <aside id="player-panel" class="hidden" aria-live="polite">
+        <h3>Replay Player Details</h3>
+        <div id="player-panel-content">Upload a replay to see team compositions and loadouts.</div>
+      </aside>
     </div>
     <div id="side-panel">
       <button id="collapse-button" title="Collapse">&gt;&gt;</button>
       <div id="room-info"></div>
       <label for="map-select"><strong>Choose Map:</strong></label>
       <select id="map-select">
-        <!-- Ensure map names match the files in the /maps/ directory -->
         <option value="train">Train</option>
         <option value="mirage">Mirage</option>
         <option value="nuke">Nuke</option>
@@ -41,9 +45,27 @@
         <button id="redo-mini" class="map-button" title="Redo">↪️</button>
         <button id="save-image-mini" class="map-button" title="Save Image">💾</button>
       </div>
+
+      <h3>Replay Upload</h3>
+      <div id="replay-dropzone" class="replay-dropzone" tabindex="0" role="button" aria-label="Upload replay file">
+        <p><strong>Drag & drop</strong> a `.dem` or `.json` replay file here</p>
+        <p>or</p>
+        <button id="replay-browse-button" class="map-button" type="button">Browse Computer</button>
+        <input id="replay-upload" type="file" accept=".dem,.json" hidden>
+      </div>
+      <div id="replay-status" class="replay-status">No replay loaded.</div>
+      <div class="replay-annotation-block">
+        <label for="round-annotation-input"><strong>Round Note</strong></label>
+        <textarea id="round-annotation-input" rows="3" placeholder="Add notes for the current round..."></textarea>
+        <div class="annotation-actions">
+          <button id="save-round-annotation" class="map-button" type="button">Save Note</button>
+          <button id="share-replay-view" class="map-button" type="button">Share View</button>
+        </div>
+      </div>
+      <button id="toggle-player-panel" class="map-button" type="button">Show Player Panel</button>
+
       <h3>Colours</h3>
       <div class="color-picker-container">
-        <!-- Ensure colors match the JavaScript logic -->
         <div class="color-swatch" style="background-color: #eda338" data-color="#eda338" title="Orange"></div>
         <div class="color-swatch" style="background-color: #109856" data-color="#109856" title="Green"></div>
         <div class="color-swatch" style="background-color: #68a3e5" data-color="#68a3e5" title="Blue"></div>
@@ -53,7 +75,6 @@
       </div>
       <h3>Tools</h3>
       <div class="draggable-container">
-        <!-- Ensure tools match the JavaScript logic -->
         <button class="tool-button" data-tool="select" title="Select Tool">🖱️</button>
         <button class="tool-button" data-tool="pan" title="Pan Tool">🖐️</button>
         <button class="tool-button" data-tool="pen" title="Pen Tool">✏️</button>
@@ -61,18 +82,17 @@
         <button class="tool-button" data-tool="ping" title="Ping Tool">📍</button>
       </div>
       <h3>Draggable Objects</h3>
-        <div class="draggable-container">
-          <!-- Ensure draggable objects match the JavaScript logic -->
-          <div class="draggable-button" data-symbol="💥" title="Flash">💥</div>
-          <div class="draggable-button" data-symbol="💣" title="Bomb">💣</div>
-          <div class="draggable-button" data-symbol="🔥" title="Molotov">🔥</div>
-          <div class="draggable-button" data-symbol="💨" title="Smoke">💨</div>
-          <div class="draggable-button" data-symbol="🎯" title="Decoy">🎯</div>
-          <div class="draggable-button" data-symbol="🔫" title="AWP">🔫</div>
-          <div class="draggable-button" data-symbol="⚓" title="Anchor">⚓</div>
-          <div class="draggable-button" data-symbol="CT" title="Counter-Terrorist">CT</div>
-          <div class="draggable-button" data-symbol="T" title="Terrorist">T</div>
-        </div>
+      <div class="draggable-container">
+        <div class="draggable-button" data-symbol="💥" title="Flash">💥</div>
+        <div class="draggable-button" data-symbol="💣" title="Bomb">💣</div>
+        <div class="draggable-button" data-symbol="🔥" title="Molotov">🔥</div>
+        <div class="draggable-button" data-symbol="💨" title="Smoke">💨</div>
+        <div class="draggable-button" data-symbol="🎯" title="Decoy">🎯</div>
+        <div class="draggable-button" data-symbol="🔫" title="AWP">🔫</div>
+        <div class="draggable-button" data-symbol="⚓" title="Anchor">⚓</div>
+        <div class="draggable-button" data-symbol="CT" title="Counter-Terrorist">CT</div>
+        <div class="draggable-button" data-symbol="T" title="Terrorist">T</div>
+      </div>
       <button id="delete-objects-button" class="action-button">Delete Selected</button>
       <div id="user-list">
         <h4>Members</h4>
@@ -81,6 +101,7 @@
       <button id="help-button" title="Help" class="help-button">Help</button>
     </div>
   </div>
+
   <div id="help-modal">
     <div id="help-content">
       <h2>Board Help</h2>
@@ -98,6 +119,42 @@
       </ul>
     </div>
   </div>
+
+  <div id="replay-controls" class="hidden">
+    <div class="replay-top-row">
+      <label for="replay-speed">Speed</label>
+      <select id="replay-speed">
+        <option value="0.5">0.5x</option>
+        <option value="1" selected>1x</option>
+        <option value="2">2x</option>
+        <option value="4">4x</option>
+      </select>
+      <label for="replay-time-mode">Time</label>
+      <select id="replay-time-mode">
+        <option value="tick" selected>Tick</option>
+        <option value="seconds">Seconds</option>
+      </select>
+      <label class="replay-filter"><input type="checkbox" id="filter-shot" checked>Shots</label>
+      <label class="replay-filter"><input type="checkbox" id="filter-death" checked>Kills</label>
+      <label class="replay-filter"><input type="checkbox" id="filter-grenade" checked>Grenades</label>
+      <label class="replay-filter"><input type="checkbox" id="filter-bomb" checked>Bomb</label>
+      <label class="replay-filter"><input type="checkbox" id="toggle-hotspots" checked>Hotspots</label>
+      <label for="hotspot-scope">Hotspot Scope</label>
+      <select id="hotspot-scope">
+        <option value="round" selected>Round</option>
+        <option value="match">Match</option>
+      </select>
+    </div>
+    <div class="replay-bottom-row">
+      <button id="replay-prev-round" class="map-button" title="Previous Round">⏮️ Round</button>
+      <button id="replay-play-toggle" class="map-button" title="Play / Pause">▶️</button>
+      <button id="replay-next-round" class="map-button" title="Next Round">Round ⏭️</button>
+      <input id="replay-slider" type="range" min="0" max="0" value="0">
+      <span id="replay-tick">Tick: -</span>
+      <span id="replay-round">Round: -</span>
+    </div>
+  </div>
+
   <script src="/socket.io/socket.io.js"></script>
   <script type="module" src="js/main.js"></script>
 </body>
