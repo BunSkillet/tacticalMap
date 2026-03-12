@@ -47,6 +47,7 @@ tacticalMap
 - **Request Validation and Rate Limiting** – Basic checks guard against malformed or abusive client data.
 - **Security Hardening** – Optional authentication token and CORS origin control via environment variables.
 - **Automated Tests** – `npm test` runs simple unit tests for user management.
+- **Replay Overlay (Upload)** – Drag-and-drop or browse for replay files (`.dem` or `.json`) from the sidebar. Loaded timelines show player tokens, usernames, event markers, kill feed, and optional player detail panel with team loadouts and ammo. `.dem` uploads auto-detect map when possible from header text and can auto-switch the board map.
 
 ## Setup
 1. Install dependencies:
