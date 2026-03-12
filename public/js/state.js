@@ -29,7 +29,16 @@ export const state = {
   initialWorldCenter: { x: 0, y: 0 },
   activeTextInput: null,
   editingObjectIndex: null,
-  lastTapTime: 0
+  lastTapTime: 0,
+  replay: {
+    frames: [],
+    rounds: [],
+    tickRate: 64,
+    currentFrameIndex: 0,
+    isPlaying: false,
+    mapName: '',
+    mapAutoDetected: false
+  }
 };
 
 state.ctx = state.canvas.getContext('2d');
@@ -61,6 +70,13 @@ export function resetState() {
   state.activeTextInput = null;
   state.editingObjectIndex = null;
   state.lastTapTime = 0;
+  state.replay.frames = [];
+  state.replay.rounds = [];
+  state.replay.tickRate = 64;
+  state.replay.currentFrameIndex = 0;
+  state.replay.isPlaying = false;
+  state.replay.mapName = '';
+  state.replay.mapAutoDetected = false;
 }
 
 export function clearBoardState() {
