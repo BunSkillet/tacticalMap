@@ -37,21 +37,7 @@ export const state = {
     currentFrameIndex: 0,
     isPlaying: false,
     mapName: '',
-    mapAutoDetected: false,
-    playbackSpeed: 1,
-    timeMode: 'tick',
-    eventFilter: {
-      shot: true,
-      death: true,
-      grenade: true,
-      bomb: true
-    },
-    canEdit: false,
-    annotationsByRound: {},
-    hotspotsEnabled: true,
-    hotspotScope: 'round',
-    hotspotsByRound: {},
-    hotspotsWholeMatch: null
+    mapAutoDetected: false
   }
 };
 
@@ -91,18 +77,6 @@ export function resetState() {
   state.replay.isPlaying = false;
   state.replay.mapName = '';
   state.replay.mapAutoDetected = false;
-  state.replay.playbackSpeed = 1;
-  state.replay.timeMode = 'tick';
-  state.replay.eventFilter.shot = true;
-  state.replay.eventFilter.death = true;
-  state.replay.eventFilter.grenade = true;
-  state.replay.eventFilter.bomb = true;
-  state.replay.canEdit = false;
-  state.replay.annotationsByRound = {};
-  state.replay.hotspotsEnabled = true;
-  state.replay.hotspotScope = 'round';
-  state.replay.hotspotsByRound = {};
-  state.replay.hotspotsWholeMatch = null;
 }
 
 export function clearBoardState() {

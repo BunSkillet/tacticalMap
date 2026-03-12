@@ -12,7 +12,6 @@ const MAP_ALIASES = {
 };
 
 const KILL_FEED_LIMIT = 8;
-const pageParams = new URLSearchParams(window.location.search);
 let playbackTimer = null;
 
 function normalizeMapName(name) {
@@ -48,30 +47,6 @@ function toNormalizedPoint(point, mapMeta = {}) {
   };
 }
 
-function detectSecondaryWeapon(player = {}) {
-  if (player.secondaryWeapon) return player.secondaryWeapon;
-  if (!Array.isArray(player.loadout)) return '-';
-  const loadoutLower = player.loadout.map((item) => String(item).toLowerCase());
-  const pistol = player.loadout.find((item, idx) => {
-    const value = loadoutLower[idx];
-    return value.includes('glock') || value.includes('usp') || value.includes('p2000') ||
-      value.includes('p250') || value.includes('deagle') || value.includes('revolver') ||
-      value.includes('five-seven') || value.includes('five seven') || value.includes('tec-9') ||
-      value.includes('tec9') || value.includes('cz75') || value.includes('dual');
-  });
-  return pistol || '-';
-}
-
-function replayEventEmoji(eventType) {
-  if (eventType === 'death' || eventType === 'kill') return '☠️';
-  if (eventType === 'shot') return '🔫';
-  if (eventType === 'grenadeThrow') return '🧨';
-  if (eventType === 'grenadeDrop') return '📦';
-  if (eventType === 'bombPlant') return '💣';
-  if (eventType === 'bombDrop') return '👜';
-  return '•';
-}
-
 function normalizePlayer(player = {}, index = 0, mapMeta = {}) {
   const position = toNormalizedPoint(player, mapMeta);
   const team = String(player.team || '').toUpperCase() === 'CT' ? 'CT' : 'T';
@@ -87,7 +62,6 @@ function normalizePlayer(player = {}, index = 0, mapMeta = {}) {
     money: Number.isFinite(player.money) ? player.money : null,
     hasBomb: Boolean(player.hasBomb),
     currentWeapon: player.currentWeapon || player.weapon || '-',
-    secondaryWeapon: detectSecondaryWeapon(player),
     ammoClip: Number.isFinite(player.ammoClip) ? player.ammoClip : null,
     ammoReserve: Number.isFinite(player.ammoReserve) ? player.ammoReserve : null,
     loadout: Array.isArray(player.loadout) ? player.loadout : []
@@ -161,76 +135,12 @@ function stopPlayback() {
 
 function frameIntervalMs() {
   const tickRate = state.replay.tickRate || 64;
-  const speed = state.replay.playbackSpeed || 1;
-  return Math.max(16, Math.floor(1000 / (tickRate * speed)));
+  return Math.max(16, Math.floor(1000 / tickRate));
 }
 
 function setStatus(message) {
   const status = document.getElementById('replay-status');
   if (status) status.textContent = message;
-}
-
-function currentRoundIndex() {
-  if (!state.replay.frames.length || !state.replay.rounds.length) return -1;
-  const tick = state.replay.frames[state.replay.currentFrameIndex]?.tick || 0;
-  return state.replay.rounds.findIndex((round) => tick >= round.startTick && tick <= round.endTick);
-}
-
-function syncAnnotationInput() {
-  const input = document.getElementById('round-annotation-input');
-  if (!input) return;
-  const roundIndex = currentRoundIndex();
-  if (roundIndex < 0) {
-    input.value = '';
-    return;
-  }
-  input.value = state.replay.annotationsByRound[roundIndex] || '';
-}
-
-function applyViewParamsFromUrl() {
-  const frame = Number(pageParams.get('rf'));
-  const speed = Number(pageParams.get('rs'));
-  const tm = pageParams.get('rtm');
-  const filters = (pageParams.get('rfilt') || '').split(',').filter(Boolean);
-  const rhs = pageParams.get('rhs');
-  const hscope = pageParams.get('rhscope');
-
-  if (Number.isFinite(speed) && speed > 0) state.replay.playbackSpeed = speed;
-  if (tm === 'seconds' || tm === 'tick') state.replay.timeMode = tm;
-  if (filters.length) {
-    state.replay.eventFilter.shot = filters.includes('shot');
-    state.replay.eventFilter.death = filters.includes('death');
-    state.replay.eventFilter.grenade = filters.includes('grenade');
-    state.replay.eventFilter.bomb = filters.includes('bomb');
-  }
-  if (rhs === '0' || rhs === '1') state.replay.hotspotsEnabled = rhs === '1';
-  if (hscope === 'round' || hscope === 'match') state.replay.hotspotScope = hscope;
-  if (Number.isFinite(frame) && frame >= 0 && state.replay.frames.length) {
-    state.replay.currentFrameIndex = Math.min(state.replay.frames.length - 1, Math.floor(frame));
-  }
-}
-
-function buildShareLink() {
-  const params = new URLSearchParams(window.location.search);
-  params.set('rf', String(state.replay.currentFrameIndex));
-  params.set('rs', String(state.replay.playbackSpeed || 1));
-  params.set('rtm', state.replay.timeMode || 'tick');
-  const enabled = Object.entries(state.replay.eventFilter).filter(([, v]) => v).map(([k]) => k).join(',');
-  params.set('rfilt', enabled);
-  params.set('rhs', state.replay.hotspotsEnabled ? '1' : '0');
-  params.set('rhscope', state.replay.hotspotScope || 'round');
-  return `${window.location.origin}${window.location.pathname}?${params.toString()}`;
-}
-
-function emitViewSync() {
-  socket.emit('replayViewSync', {
-    frameIndex: state.replay.currentFrameIndex,
-    speed: state.replay.playbackSpeed,
-    timeMode: state.replay.timeMode,
-    eventFilter: state.replay.eventFilter,
-    hotspotsEnabled: state.replay.hotspotsEnabled,
-    hotspotScope: state.replay.hotspotScope
-  });
 }
 
 function setCurrentFrameIndex(index) {
@@ -242,8 +152,6 @@ function setCurrentFrameIndex(index) {
   }
   state.replay.currentFrameIndex = Math.max(0, Math.min(total - 1, index));
   updateControls();
-  syncAnnotationInput();
-  emitViewSync();
 }
 
 function startPlayback() {
@@ -300,145 +208,27 @@ function extractMapFromDemText(content) {
   return mapMatch ? normalizeMapName(mapMatch[0]) : '';
 }
 
-async function pollReplayJob(jobId, attempts = 120) {
-  for (let i = 0; i < attempts; i += 1) {
-    const response = await fetch(`/api/replays/${encodeURIComponent(jobId)}`);
-    const data = await response.json();
-
-    if (data.status === 'completed') return data.replay;
-    if (data.status === 'failed') {
-      throw new Error(data.error || 'Replay parsing failed.');
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 250));
-  }
-  throw new Error('Replay parsing timed out.');
-}
-
 async function parseUpload(file) {
-  const uploadResponse = await fetch(`/api/replays/upload?filename=${encodeURIComponent(file.name)}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/octet-stream',
-      'x-file-name': file.name
-    },
-    body: await file.arrayBuffer()
-  });
+  const text = await file.text();
+  const ext = file.name.split('.').pop()?.toLowerCase();
 
-  const uploadData = await uploadResponse.json();
-  if (!uploadResponse.ok) {
-    throw new Error(uploadData.error || 'Replay upload failed.');
+  if (ext === 'json') {
+    return sanitizeReplay(JSON.parse(text));
   }
 
-  const replay = await pollReplayJob(uploadData.jobId);
-  return sanitizeReplay(replay);
-}
-
-
-function eventTypeGroup(eventType) {
-  if (eventType === 'shot') return 'shot';
-  if (eventType === 'death' || eventType === 'kill') return 'death';
-  if (eventType === 'grenadeThrow' || eventType === 'grenadeDrop') return 'grenade';
-  if (eventType === 'bombDrop' || eventType === 'bombPlant') return 'bomb';
-  return null;
-}
-
-function filterEvents(events = []) {
-  return events.filter((event) => {
-    const group = eventTypeGroup(event.type);
-    if (!group) return false;
-    return Boolean(state.replay.eventFilter[group]);
-  });
-}
-
-
-function currentRoundFrames() {
-  if (!state.replay.frames.length) return [];
-  const roundIndex = currentRoundIndex();
-  if (roundIndex < 0 || !state.replay.rounds[roundIndex]) return state.replay.frames;
-  const round = state.replay.rounds[roundIndex];
-  return state.replay.frames.filter((frame) => frame.tick >= round.startTick && frame.tick <= round.endTick);
-}
-
-function quantize(point, bins = 24) {
-  const x = Math.max(0, Math.min(bins - 1, Math.floor((point.x || 0) * bins)));
-  const y = Math.max(0, Math.min(bins - 1, Math.floor((point.y || 0) * bins)));
-  return `${x}:${y}`;
-}
-
-function keyToPoint(key, bins = 24) {
-  const [sx, sy] = key.split(':').map((v) => Number(v));
-  return {
-    x: (sx + 0.5) / bins,
-    y: (sy + 0.5) / bins
-  };
-}
-
-function topClusters(counter, limit = 8) {
-  return [...counter.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, limit)
-    .map(([key, weight]) => ({ ...keyToPoint(key), weight }));
-}
-
-export function getReplayHotspots() {
-  if (!state.replay.hotspotsEnabled || !state.replay.frames.length) {
-    return { frequent: [], lethal: [] };
+  if (ext === 'dem') {
+    const mapName = extractMapFromDemText(text);
+    return {
+      mapName,
+      tickRate: 64,
+      rounds: [],
+      frames: [],
+      source: 'dem-header',
+      mapAutoDetected: Boolean(mapName)
+    };
   }
 
-  const roundIndex = currentRoundIndex();
-  if (state.replay.hotspotScope === 'match') {
-    if (state.replay.hotspotsWholeMatch) return state.replay.hotspotsWholeMatch;
-  }
-
-  const cacheKey = String(roundIndex);
-  if (state.replay.hotspotScope === 'round') {
-    const cached = state.replay.hotspotsByRound[cacheKey];
-    if (cached) return cached;
-  }
-
-  const frames = state.replay.hotspotScope === 'match' ? state.replay.frames : currentRoundFrames();
-  const freqCounter = new Map();
-  const lethalCounter = new Map();
-
-  frames.forEach((frame) => {
-    (frame.players || []).forEach((player) => {
-      const key = quantize(player);
-      freqCounter.set(key, (freqCounter.get(key) || 0) + 1);
-    });
-
-    (frame.events || []).forEach((event) => {
-      const group = eventTypeGroup(event.type);
-      if (!group) return;
-      const key = quantize(event);
-      const add = group === 'death' ? 3 : group === 'shot' ? 1 : 2;
-      lethalCounter.set(key, (lethalCounter.get(key) || 0) + add);
-    });
-  });
-
-  const result = {
-    frequent: topClusters(freqCounter, 10),
-    lethal: topClusters(lethalCounter, 10)
-  };
-
-  if (state.replay.hotspotScope === 'match') {
-    state.replay.hotspotsWholeMatch = result;
-  } else {
-    state.replay.hotspotsByRound[cacheKey] = result;
-  }
-  return result;
-}
-
-function buildFrameAnalytics(frame) {
-  const players = frame?.players || [];
-  const events = frame?.events || [];
-  const aliveT = players.filter((player) => player.team === 'T' && (player.health === null || player.health > 0)).length;
-  const aliveCT = players.filter((player) => player.team === 'CT' && (player.health === null || player.health > 0)).length;
-  const kills = events.filter((event) => event.type === 'death' || event.type === 'kill').length;
-  const shots = events.filter((event) => event.type === 'shot').length;
-  const grenades = events.filter((event) => event.type === 'grenadeThrow' || event.type === 'grenadeDrop').length;
-  const bombEvents = events.filter((event) => event.type === 'bombDrop' || event.type === 'bombPlant').length;
-  return { aliveT, aliveCT, kills, shots, grenades, bombEvents };
+  throw new Error('Unsupported file format. Upload a .dem or .json replay file.');
 }
 
 function summarizeTeam(players, team) {
@@ -455,8 +245,7 @@ function summarizeTeam(players, team) {
             <strong>${player.name}</strong>
             <span>${hpArmor}</span>
           </div>
-          <div class="player-meta-line">Primary: ${player.currentWeapon} · Ammo: ${ammo}</div>
-          <div class="player-meta-line">Secondary: ${player.secondaryWeapon || '-'}</div>
+          <div class="player-meta-line">Weapon: ${player.currentWeapon} · Ammo: ${ammo}</div>
           <div class="player-meta-line">Loadout: ${loadout}</div>
           <div class="player-meta-line">Money: ${money}${player.hasBomb ? ' · Carrying Bomb' : ''}</div>
         </li>
@@ -477,20 +266,8 @@ function renderPlayerPanel(frame) {
 
   const ts = summarizeTeam(players, 'T') || '<li>No Terrorist players in frame.</li>';
   const cts = summarizeTeam(players, 'CT') || '<li>No Counter-Terrorist players in frame.</li>';
-  const analytics = buildFrameAnalytics(frame);
 
   content.innerHTML = `
-    <div class="panel-team-block replay-analytics">
-      <h4>Frame Analytics</h4>
-      <div class="analytics-grid">
-        <span>T Alive: <strong>${analytics.aliveT}</strong></span>
-        <span>CT Alive: <strong>${analytics.aliveCT}</strong></span>
-        <span>Kills: <strong>${analytics.kills}</strong></span>
-        <span>Shots: <strong>${analytics.shots}</strong></span>
-        <span>Grenades: <strong>${analytics.grenades}</strong></span>
-        <span>Bomb Events: <strong>${analytics.bombEvents}</strong></span>
-      </div>
-    </div>
     <div class="panel-team-block t-team">
       <h4>Terrorists</h4>
       <ul>${ts}</ul>
@@ -503,30 +280,10 @@ function renderPlayerPanel(frame) {
 }
 
 function formatKillEntry(event) {
-  const emoji = replayEventEmoji(event.type);
-  const actor = event.attacker || event.player || 'Unknown';
-  const victim = event.victim || '';
-  const weapon = event.weapon || event.grenadeType || '';
-
-  if (event.type === 'death' || event.type === 'kill') {
-    return `${emoji} ${actor} [${weapon || 'weapon'}] ${victim || 'Unknown'}`;
-  }
-  if (event.type === 'grenadeThrow') {
-    return `${emoji} ${actor} threw ${weapon || 'grenade'}`;
-  }
-  if (event.type === 'grenadeDrop') {
-    return `${emoji} ${actor} dropped ${weapon || 'grenade'}`;
-  }
-  if (event.type === 'bombPlant') {
-    return `${emoji} ${actor} planted the bomb`;
-  }
-  if (event.type === 'bombDrop') {
-    return `${emoji} ${actor} dropped the bomb`;
-  }
-  if (event.type === 'shot') {
-    return `${emoji} ${actor} fired`;
-  }
-  return `${emoji} ${actor}`;
+  const killer = event.attacker || event.player || 'Unknown';
+  const victim = event.victim || 'Unknown';
+  const weapon = event.weapon || 'weapon';
+  return `${killer} [${weapon}] ${victim}`;
 }
 
 function updateKillFeed(frame) {
@@ -539,14 +296,14 @@ function updateKillFeed(frame) {
     return;
   }
 
-  const feedEvents = filterEvents(frame.events).filter((event) => ['death', 'kill', 'grenadeThrow', 'grenadeDrop', 'bombPlant', 'bombDrop'].includes(event.type));
-  if (!feedEvents.length) {
+  const killEvents = frame.events.filter((event) => event.type === 'death' || event.type === 'kill');
+  if (!killEvents.length) {
     killFeed.classList.add('hidden');
     killFeed.innerHTML = '';
     return;
   }
 
-  const entries = feedEvents.slice(-KILL_FEED_LIMIT).map((event) => `<div class="kill-feed-item">${formatKillEntry(event)}</div>`);
+  const entries = killEvents.slice(-KILL_FEED_LIMIT).map((event) => `<div class="kill-feed-item">${formatKillEntry(event)}</div>`);
   killFeed.innerHTML = entries.join('');
   killFeed.classList.remove('hidden');
 }
@@ -568,20 +325,20 @@ function bindUploadControls(handleFileSelection) {
 
   if (!dropzone || !browseButton || !uploadInput) return;
 
-  browseButton.addEventListener('click', () => { if (!uploadInput.disabled) uploadInput.click(); });
+  browseButton.addEventListener('click', () => uploadInput.click());
 
-  dropzone.addEventListener('click', () => { if (!uploadInput.disabled) uploadInput.click(); });
+  dropzone.addEventListener('click', () => uploadInput.click());
   dropzone.addEventListener('keydown', (event) => {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
-      if (!uploadInput.disabled) uploadInput.click();
+      uploadInput.click();
     }
   });
 
   ['dragenter', 'dragover'].forEach((type) => {
     dropzone.addEventListener(type, (event) => {
       event.preventDefault();
-      if (!uploadInput.disabled) dropzone.classList.add('drag-active');
+      dropzone.classList.add('drag-active');
     });
   });
 
@@ -589,18 +346,15 @@ function bindUploadControls(handleFileSelection) {
     dropzone.addEventListener(type, (event) => {
       event.preventDefault();
       dropzone.classList.remove('drag-active');
-      if (uploadInput.disabled) return;
     });
   });
 
   dropzone.addEventListener('drop', (event) => {
-    if (uploadInput.disabled) return;
     const file = event.dataTransfer?.files?.[0];
     if (file) handleFileSelection(file);
   });
 
   uploadInput.addEventListener('change', () => {
-    if (uploadInput.disabled) return;
     const file = uploadInput.files?.[0];
     if (file) handleFileSelection(file);
   });
@@ -631,7 +385,6 @@ export function updateControls() {
     roundLabel.textContent = 'Round: -';
     updateKillFeed(null);
     renderPlayerPanel(null);
-    syncAnnotationInput();
     return;
   }
 
@@ -640,12 +393,7 @@ export function updateControls() {
   slider.value = state.replay.currentFrameIndex;
 
   const currentFrame = state.replay.frames[state.replay.currentFrameIndex];
-  if (state.replay.timeMode === 'seconds') {
-    const seconds = (currentFrame.tick / (state.replay.tickRate || 64)).toFixed(2);
-    tickLabel.textContent = `Time: ${seconds}s`;
-  } else {
-    tickLabel.textContent = `Tick: ${currentFrame.tick}`;
-  }
+  tickLabel.textContent = `Tick: ${currentFrame.tick}`;
 
   const currentRound = state.replay.rounds.find((round) => (
     currentFrame.tick >= round.startTick && currentFrame.tick <= round.endTick
@@ -653,42 +401,11 @@ export function updateControls() {
   roundLabel.textContent = currentRound ? currentRound.label : 'Round: -';
 
   handleFrameSideEffects();
-  syncAnnotationInput();
 }
 
 export function getReplayRenderData() {
   if (!state.replay.frames.length) return { players: [], events: [] };
-  const frame = state.replay.frames[state.replay.currentFrameIndex] || { players: [], events: [] };
-  return {
-    ...frame,
-    events: filterEvents(frame.events || [])
-  };
-}
-
-function applyReplayPayload(replay, fileName = 'replay') {
-  state.replay.frames = replay.frames || [];
-  state.replay.rounds = replay.rounds || [];
-  state.replay.tickRate = replay.tickRate || 64;
-  state.replay.currentFrameIndex = 0;
-  state.replay.mapAutoDetected = Boolean(replay.mapAutoDetected || replay.mapName);
-  state.replay.mapName = replay.mapName || '';
-  state.replay.hotspotsByRound = {};
-  state.replay.hotspotsWholeMatch = null;
-
-  if (replay.mapName) {
-    applyReplayMap(replay.mapName);
-  }
-
-  if (state.replay.frames.length > 0) {
-    applyViewParamsFromUrl();
-    setStatus(`Replay loaded: ${fileName} (${state.replay.frames.length} frames)`);
-  } else if (state.replay.mapName) {
-    setStatus(`Map detected (${state.replay.mapName}), but this .dem has no timeline frames yet.`);
-  } else {
-    setStatus('Replay uploaded, but no usable timeline data found.');
-  }
-
-  updateControls();
+  return state.replay.frames[state.replay.currentFrameIndex] || { players: [], events: [] };
 }
 
 export function setupReplayControls() {
@@ -697,30 +414,8 @@ export function setupReplayControls() {
   const prevRound = document.getElementById('replay-prev-round');
   const nextRound = document.getElementById('replay-next-round');
   const togglePanelButton = document.getElementById('toggle-player-panel');
-  const speedSelect = document.getElementById('replay-speed');
-  const timeModeSelect = document.getElementById('replay-time-mode');
-  const filterShot = document.getElementById('filter-shot');
-  const filterDeath = document.getElementById('filter-death');
-  const filterGrenade = document.getElementById('filter-grenade');
-  const filterBomb = document.getElementById('filter-bomb');
-  const toggleHotspots = document.getElementById('toggle-hotspots');
-  const hotspotScopeSelect = document.getElementById('hotspot-scope');
-  const annotationInput = document.getElementById('round-annotation-input');
-  const saveAnnotationButton = document.getElementById('save-round-annotation');
-  const shareViewButton = document.getElementById('share-replay-view');
 
   if (!slider || !playToggle || !prevRound || !nextRound) return;
-
-  state.replay.canEdit = pageParams.get('host') === '1';
-  const dropzone = document.getElementById('replay-dropzone');
-  const browseButton = document.getElementById('replay-browse-button');
-  const uploadInput = document.getElementById('replay-upload');
-
-  if (!state.replay.canEdit) {
-    if (dropzone) dropzone.classList.add('disabled');
-    if (browseButton) browseButton.disabled = true;
-    if (uploadInput) uploadInput.disabled = true;
-  }
 
   const handleFileSelection = async (file) => {
     stopPlayback();
@@ -728,15 +423,30 @@ export function setupReplayControls() {
 
     try {
       const replay = await parseUpload(file);
-      applyReplayPayload(replay, file.name);
-      socket.emit('replayDataUpdate', { replay });
-      emitViewSync();
+      state.replay.frames = replay.frames || [];
+      state.replay.rounds = replay.rounds || [];
+      state.replay.tickRate = replay.tickRate || 64;
+      state.replay.currentFrameIndex = 0;
+      state.replay.mapAutoDetected = Boolean(replay.mapAutoDetected || replay.mapName);
+      state.replay.mapName = replay.mapName || '';
+
+      if (replay.mapName) {
+        applyReplayMap(replay.mapName);
+      }
+
+      if (state.replay.frames.length > 0) {
+        setStatus(`Replay loaded: ${file.name} (${state.replay.frames.length} frames)`);
+      } else if (state.replay.mapName) {
+        setStatus(`Map detected (${state.replay.mapName}), but this .dem has no timeline frames yet.`);
+      } else {
+        setStatus('Replay uploaded, but no usable timeline data found.');
+      }
+
+      updateControls();
     } catch (error) {
       state.replay.frames = [];
       state.replay.rounds = [];
       state.replay.currentFrameIndex = 0;
-      state.replay.hotspotsByRound = {};
-      state.replay.hotspotsWholeMatch = null;
       setStatus(`Replay load failed: ${error.message}`);
       updateControls();
     }
@@ -766,128 +476,6 @@ export function setupReplayControls() {
 
   if (togglePanelButton) {
     togglePanelButton.addEventListener('click', togglePlayerPanel);
-  }
-
-  if (speedSelect) {
-    speedSelect.value = String(state.replay.playbackSpeed || 1);
-    speedSelect.addEventListener('change', () => {
-      state.replay.playbackSpeed = Number(speedSelect.value) || 1;
-      if (state.replay.isPlaying) startPlayback();
-      emitViewSync();
-    });
-  }
-
-  if (timeModeSelect) {
-    timeModeSelect.value = state.replay.timeMode || 'tick';
-    timeModeSelect.addEventListener('change', () => {
-      state.replay.timeMode = timeModeSelect.value === 'seconds' ? 'seconds' : 'tick';
-      updateControls();
-      emitViewSync();
-    });
-  }
-
-  const bindFilter = (el, key) => {
-    if (!el) return;
-    el.checked = Boolean(state.replay.eventFilter[key]);
-    el.addEventListener('change', () => {
-      state.replay.eventFilter[key] = el.checked;
-      updateControls();
-      emitViewSync();
-    });
-  };
-
-  bindFilter(filterShot, 'shot');
-  bindFilter(filterDeath, 'death');
-  bindFilter(filterGrenade, 'grenade');
-  bindFilter(filterBomb, 'bomb');
-
-  if (toggleHotspots) {
-    toggleHotspots.checked = Boolean(state.replay.hotspotsEnabled);
-    toggleHotspots.addEventListener('change', () => {
-      state.replay.hotspotsEnabled = toggleHotspots.checked;
-      updateControls();
-      emitViewSync();
-    });
-  }
-
-  if (hotspotScopeSelect) {
-    hotspotScopeSelect.value = state.replay.hotspotScope || 'round';
-    hotspotScopeSelect.addEventListener('change', () => {
-      state.replay.hotspotScope = hotspotScopeSelect.value === 'match' ? 'match' : 'round';
-      updateControls();
-      emitViewSync();
-    });
-  }
-
-
-
-  socket.on('replayDataUpdated', (replay) => {
-    if (!replay || !Array.isArray(replay.frames)) return;
-    applyReplayPayload(replay, 'shared replay');
-  });
-
-  socket.on('replayCollabSnapshot', (snapshot) => {
-    state.replay.annotationsByRound = snapshot?.annotationsByRound || {};
-    if (snapshot?.currentReplay && Array.isArray(snapshot.currentReplay.frames)) {
-      applyReplayPayload(snapshot.currentReplay, 'shared replay');
-    }
-    syncAnnotationInput();
-  });
-
-  socket.on('replayAnnotationUpdated', ({ roundIndex, text }) => {
-    if (!Number.isFinite(roundIndex)) return;
-    state.replay.annotationsByRound[roundIndex] = text || '';
-    syncAnnotationInput();
-  });
-
-  socket.on('replayViewSynced', (payload) => {
-    if (!payload || payload.sourceId === socket.id) return;
-    state.replay.playbackSpeed = Number(payload.speed) || state.replay.playbackSpeed;
-    state.replay.timeMode = payload.timeMode === 'seconds' ? 'seconds' : 'tick';
-    if (typeof payload.hotspotsEnabled === 'boolean') state.replay.hotspotsEnabled = payload.hotspotsEnabled;
-    if (payload.hotspotScope === 'round' || payload.hotspotScope === 'match') state.replay.hotspotScope = payload.hotspotScope;
-    if (payload.eventFilter && typeof payload.eventFilter === 'object') {
-      state.replay.eventFilter = {
-        shot: payload.eventFilter.shot !== false,
-        death: payload.eventFilter.death !== false,
-        grenade: payload.eventFilter.grenade !== false,
-        bomb: payload.eventFilter.bomb !== false
-      };
-    }
-    if (Number.isFinite(payload.frameIndex)) {
-      state.replay.currentFrameIndex = Math.max(0, Math.min(state.replay.frames.length - 1, payload.frameIndex));
-    }
-    if (speedSelect) speedSelect.value = String(state.replay.playbackSpeed || 1);
-    if (timeModeSelect) timeModeSelect.value = state.replay.timeMode || 'tick';
-    if (toggleHotspots) toggleHotspots.checked = Boolean(state.replay.hotspotsEnabled);
-    if (hotspotScopeSelect) hotspotScopeSelect.value = state.replay.hotspotScope || 'round';
-    updateControls();
-  });
-
-  if (annotationInput && saveAnnotationButton) {
-    annotationInput.disabled = !state.replay.canEdit;
-    saveAnnotationButton.disabled = !state.replay.canEdit;
-    saveAnnotationButton.addEventListener('click', () => {
-      if (!state.replay.canEdit) return;
-      const roundIndex = currentRoundIndex();
-      if (roundIndex < 0) return;
-      const text = annotationInput.value || '';
-      state.replay.annotationsByRound[roundIndex] = text;
-      socket.emit('replayAnnotationUpdate', { roundIndex, text });
-      setStatus(`Saved note for round ${roundIndex + 1}`);
-    });
-  }
-
-  if (shareViewButton) {
-    shareViewButton.addEventListener('click', async () => {
-      const link = buildShareLink();
-      try {
-        await navigator.clipboard.writeText(link);
-        setStatus('Replay view link copied to clipboard.');
-      } catch (err) {
-        window.prompt('Copy replay view link:', link);
-      }
-    });
   }
 
   updateControls();

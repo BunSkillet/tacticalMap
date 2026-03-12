@@ -1,5 +1,5 @@
 import { state } from './state.js';
-import { getReplayHotspots, getReplayRenderData } from './replay.js';
+import { getReplayRenderData } from './replay.js';
 
 export function resizeCanvas() {
   state.canvas.width = state.canvas.clientWidth;
@@ -53,37 +53,7 @@ function drawReplayLabel(ctx, x, y, text) {
   ctx.fillText(text, x, labelY + (fontSize / 2) + paddingY);
 }
 
-
-function drawReplayHotspots(ctx) {
-  const hotspots = getReplayHotspots();
-  if (!hotspots) return;
-
-  hotspots.frequent.forEach((spot) => {
-    const pt = toMapPoint(spot);
-    const radius = (14 + Math.min(spot.weight, 25)) / state.scale;
-    const alpha = Math.min(0.35, 0.1 + (spot.weight / 80));
-    ctx.beginPath();
-    ctx.arc(pt.x, pt.y, radius, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(255, 196, 0, ${alpha})`;
-    ctx.fill();
-  });
-
-  hotspots.lethal.forEach((spot) => {
-    const pt = toMapPoint(spot);
-    const radius = (12 + Math.min(spot.weight, 25)) / state.scale;
-    const alpha = Math.min(0.42, 0.12 + (spot.weight / 70));
-    ctx.beginPath();
-    ctx.arc(pt.x, pt.y, radius, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(255, 64, 64, ${alpha})`;
-    ctx.fill();
-    ctx.lineWidth = 1 / state.scale;
-    ctx.strokeStyle = `rgba(255, 190, 190, ${Math.min(0.7, alpha + 0.2)})`;
-    ctx.stroke();
-  });
-}
-
 function drawReplayOverlay(ctx) {
-  drawReplayHotspots(ctx);
   const replayFrame = getReplayRenderData();
   if (!replayFrame) return;
 
@@ -102,10 +72,10 @@ function drawReplayOverlay(ctx) {
 
     if (player.hasBomb) {
       ctx.fillStyle = '#111';
-      ctx.font = `${16 / state.scale}px sans-serif`;
+      ctx.font = `${14 / state.scale}px sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'bottom';
-      ctx.fillText('💣', pt.x, pt.y - (14 / state.scale));
+      ctx.fillText('B', pt.x, pt.y - (16 / state.scale));
     }
   });
 
@@ -115,26 +85,23 @@ function drawReplayOverlay(ctx) {
     let symbol = '•';
     if (event.type === 'shot') {
       color = '#ffeb3b';
-      symbol = '🔫';
-    } else if (event.type === 'death' || event.type === 'kill') {
+      symbol = '✦';
+    } else if (event.type === 'death') {
       color = '#ff4d4f';
-      symbol = '☠️';
-    } else if (event.type === 'grenadeThrow') {
+      symbol = '✖';
+    } else if (event.type === 'grenadeThrow' || event.type === 'grenadeDrop') {
       color = '#9c27b0';
-      symbol = '🧨';
-    } else if (event.type === 'grenadeDrop') {
-      color = '#7e57c2';
-      symbol = '📦';
+      symbol = '◉';
     } else if (event.type === 'bombDrop') {
       color = '#111111';
-      symbol = '👜';
+      symbol = '⬤';
     } else if (event.type === 'bombPlant') {
       color = '#00e676';
-      symbol = '💣';
+      symbol = '⬢';
     }
 
     ctx.fillStyle = color;
-    ctx.font = `${17 / state.scale}px sans-serif`;
+    ctx.font = `${18 / state.scale}px sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(symbol, pt.x, pt.y);

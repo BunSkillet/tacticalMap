@@ -54,14 +54,6 @@
         <input id="replay-upload" type="file" accept=".dem,.json" hidden>
       </div>
       <div id="replay-status" class="replay-status">No replay loaded.</div>
-      <div class="replay-annotation-block">
-        <label for="round-annotation-input"><strong>Round Note</strong></label>
-        <textarea id="round-annotation-input" rows="3" placeholder="Add notes for the current round..."></textarea>
-        <div class="annotation-actions">
-          <button id="save-round-annotation" class="map-button" type="button">Save Note</button>
-          <button id="share-replay-view" class="map-button" type="button">Share View</button>
-        </div>
-      </div>
       <button id="toggle-player-panel" class="map-button" type="button">Show Player Panel</button>
 
       <h3>Colours</h3>
@@ -121,30 +113,6 @@
   </div>
 
   <div id="replay-controls" class="hidden">
-    <div class="replay-top-row">
-      <label for="replay-speed">Speed</label>
-      <select id="replay-speed">
-        <option value="0.5">0.5x</option>
-        <option value="1" selected>1x</option>
-        <option value="2">2x</option>
-        <option value="4">4x</option>
-      </select>
-      <label for="replay-time-mode">Time</label>
-      <select id="replay-time-mode">
-        <option value="tick" selected>Tick</option>
-        <option value="seconds">Seconds</option>
-      </select>
-      <label class="replay-filter"><input type="checkbox" id="filter-shot" checked>Shots</label>
-      <label class="replay-filter"><input type="checkbox" id="filter-death" checked>Kills</label>
-      <label class="replay-filter"><input type="checkbox" id="filter-grenade" checked>Grenades</label>
-      <label class="replay-filter"><input type="checkbox" id="filter-bomb" checked>Bomb</label>
-      <label class="replay-filter"><input type="checkbox" id="toggle-hotspots" checked>Hotspots</label>
-      <label for="hotspot-scope">Hotspot Scope</label>
-      <select id="hotspot-scope">
-        <option value="round" selected>Round</option>
-        <option value="match">Match</option>
-      </select>
-    </div>
     <div class="replay-bottom-row">
       <button id="replay-prev-round" class="map-button" title="Previous Round">⏮️ Round</button>
       <button id="replay-play-toggle" class="map-button" title="Play / Pause">▶️</button>
